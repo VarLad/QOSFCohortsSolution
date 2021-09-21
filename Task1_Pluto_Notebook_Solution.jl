@@ -7,64 +7,191 @@ using InteractiveUtils
 # ╔═╡ 9ea9660f-e799-4abf-9a95-56e344a5208f
 using Yao, YaoPlots
 
+# ╔═╡ d736b0e1-a5ce-4ea6-aa13-9b27509ac230
+md"""
+**_Please note:_** **If you're running this notebook in the browser _or_ locally, Pluto is reactive. It means that if you change the value of `x` below, the program is written in a manner to change accordingly, realtime.**
+"""
+
+# ╔═╡ f8447326-85eb-4153-8768-0e142d69a775
+md"""
+`x` has the vector we want to encode of size ``2^n``
+
+`y` has the the bit vectors corresponding to `x`
+"""
+
 # ╔═╡ b6fa6388-6b69-493c-9314-b29eced3e3f4
-x = [5,7,1,10]
+x = [1,5,7,10]
 
 # ╔═╡ f2a2c511-1645-4ae0-acfc-8d2f5f184cde
 y = reverse.(digits.(x, base=2, pad = Int(ceil(log(2,maximum(x)+1)))))
 
-# ╔═╡ 8b50c80d-1380-4a25-9774-e417eb790d9a
+# ╔═╡ 43f90b31-c22d-40fa-9ac5-bf03a66aac5b
+md"""
+`n_address`: Number of address qubits used for the qRAM
+
+`n_arr`: Maximum number of data qubits or qubits used to encode the arrays
+
+`n`: Total number of qubits in the circuit (including the `1` _flip_ qubit)
+"""
+
+# ╔═╡ 6b9b5928-754f-4b26-9336-98fb8637ae8b
 begin
-	n = length(y)
+	n_address = Int(ceil(log(2,length(y))))
+	n_arr = length(y[1])
+	n = n_address+n_arr+1
+	n_address, n_arr, n
+end
+
+# ╔═╡ d10c8bc6-22d3-4ee7-ab86-cdeeb1f5eb71
+md"""
+`address`: Holds the bit vectors of the numbers ``0`` to ``2^n`` used for placing the `X` gates in the address qubits later
+"""
+
+# ╔═╡ fdefac19-0264-4f45-80c4-53349562e289
+address = digits.(0:2^n_address-1, base=2, pad = n_address)
+
+# ╔═╡ 8e04b2e2-9253-4cf9-a02e-61e5d1a0070a
+rep = reverse([findall(isone, address[i]) for i in 1:length(y)])
+
+# ╔═╡ 8b50c80d-1380-4a25-9774-e417eb790d9a
+begin	
+	f(x) = chain(n, [control(1:n_address, (k+n_address)=>X) for k in findall(isone, x)])
+		
+	QRAM = chain([chain(repeat(X, rep[i]), f(y[i]), repeat(X, rep[i])) for i in 1:length(y)-1])
 	
-	f(x) = chain(7, [control(1:2, (k+2)=>X) for k in findall(isone, x)])
-	QRAM = chain(7, repeat(H, 1:2), 
-		repeat(X, 1:2), f(y[1]), 
-		repeat(X, 1:2), put(1=>X), f(y[2]), 
-		put(1=>X), put(2=>X), f(y[3]), 
-		put(2=>X), f(y[4]))
+	QRAM = chain(QRAM, f(y[end]))
 	
 	plot(QRAM)
 end
 
+# ╔═╡ b39468c1-cbe7-40fc-9390-127f706b51b3
+md"""
+`zero_state(n)`: makes the state ``|0⟩_n``
+
+`uniform_state(n)`: makes the state ``\frac{1}{\sqrt{2^n}}\sum_{j=0}^{n-1}|j⟩``
+
+`join(x,y)`: joins the states `x` and `y`
+"""
+
+# ╔═╡ fe3cf78a-cdb8-4ad3-acc8-607a536ef3c6
+join(zero_state(n-n_address), uniform_state(n_address)) |> QRAM |> r->measure(r, nshots=1024)
+
+# ╔═╡ 244a25a5-52b3-445f-9575-092fd5911404
+md"""
+Making the diffuser/amplifier part of the Grover's algorithm circuit
+"""
+
 # ╔═╡ e5a2456b-3e26-405c-80ea-d1ad85d12e5a
 begin
-	U𝜑 = chain(2, repeat(H, 1:2), repeat(X, 1:2), put(2=>H), control(2, 1=>X), put(2=>H), repeat(X, 1:2), repeat(H, 1:2))
-	
-	plot(U𝜑)
+	U𝜑(n) = chain(n, repeat(H, 1:n), repeat(X, 1:n), control(1:n-1, n=>Z), repeat(X, 1:n), repeat(H, 1:n))
+	plot(U𝜑(3))
 end
+
+# ╔═╡ 8809d0f0-91a8-4504-a907-88ba36f3dee3
+md"""
+`checker_1` and `checker_2`: flips the state with alternating bits(after which the diffuser/amplifier circuit amplifies them
+"""
 
 # ╔═╡ 3f61117a-135e-433c-879a-00ba96b923e4
 begin
-	checker_1 = chain(5, repeat(X, 1:2:4), control(1:4, 5=>Z), repeat(X, 1:2:4))
+	checker_1 = chain(n_arr + 1, 
+		repeat(X, 1:2:n_arr), 
+		control(1:n_arr, (n_arr+1)=>Z), 
+		repeat(X, 1:2:n_arr))
 	plot(checker_1)
 end
 
 # ╔═╡ 3d2c152e-47d8-4a35-a6fc-44863a86cd32
 begin
-	checker_2 = chain(5, repeat(X, 2:2:4), control(1:4, 5=>Z), repeat(X, 2:2:4))
+	checker_2 = chain(n_arr + 1, 
+		repeat(X, 2:2:n_arr), 
+		control(1:n_arr, (n_arr + 1) => Z), 
+		repeat(X, 2:2:n_arr))
 	plot(checker_2)
 end
 
 # ╔═╡ 7ec3e06a-5d92-48b7-8501-eb71aa1c20ef
-circuit = chain(7, put(7=>H), put(7=>X), QRAM, put(3:7=>checker_1), put(3:7=>checker_2), QRAM', put(1:2=>U𝜑)); plot(circuit)
+circuit = chain(n, repeat(H, 1:n_address), put(n=>H),
+	QRAM, 
+	put(n_address+1 : n => checker_1), 
+	put(n_address+1 : n => checker_2),
+	QRAM',
+	put(collect(Iterators.flatten((1:n_address, n))) => U𝜑(n_address+1))); plot(circuit)
 
-# ╔═╡ e4bc5c27-971f-4150-a192-f725b673e543
-output = zero_state(7) |> circuit
+# ╔═╡ 06bdb659-db1c-4045-b720-a6abffafa008
+md"""
+`put(collect(Iterators.flatten((1:n_address, n))) => U𝜑(n_address+1))`:
 
-# ╔═╡ a185e144-1b95-4cd4-8437-33461c0352ef
-state(partial_tr(output, 3:7)) #traces out the 3rd to 7th qubits
+It applies the diffuser circuit to ``[1,2,3.... n\_address^{th}, n^{th}]`` qubits
 
-# ╔═╡ 6422d347-1ee1-4649-a746-272edb03efe9
-output |> r->measure(r, nshots=1024, 1:2)
+We can also write `[1:n_address; n]` instead of `collect(Iterators.flatten((1:n_address, n)))` but the latter implementation is _lazy_ hence _free_. The former implementation allocates the entire array
+"""
+
+# ╔═╡ 773f4462-7b99-4c79-9650-53743b890515
+md"""
+Partial trace is used here to focus on the states of address qubits
+"""
+
+# ╔═╡ 28e83e27-8c2c-444a-a5a2-a52d4f736e6e
+vec(state(partial_tr(zero_state(n) |> circuit, n_address+1:n)))
+
+# ╔═╡ 3c222af6-78e9-4a55-b030-3dad024e8bde
+output = zero_state(n) |> circuit |> r->measure(r, 1:n_address, nshots=1024)
+
+# ╔═╡ 21d184f1-1690-4953-be6e-3815dba72a69
+let
+	import StatsBase
+	StatsBase.fit(StatsBase.Histogram, output, 0:2^n_address).weights
+end
+
+# ╔═╡ aab91164-be06-445b-82bf-fff197ee51da
+function answer(x)
+	y = reverse.(digits.(x, base=2, pad = Int(ceil(log(2,maximum(x)+1)))))
+	n_address = Int(ceil(log(2,length(y))))
+	n_arr = length(y[1])
+	n = n_address+n_arr+1
+	
+	address = digits.(0:2^n_address-1, base=2, pad = n_address)
+	rep = reverse([findall(isone, address[i]) for i in 1:length(y)])
+	
+	f(x) = chain(n, [control(1:n_address, (k+n_address)=>X) for k in findall(isone, x)])
+	QRAM = chain([chain(repeat(X, rep[i]), f(y[i]), repeat(X, rep[i])) for i in 1:length(y)-1])
+	QRAM = chain(QRAM, f(y[end]))
+		
+	U𝜑(n) = chain(n, repeat(H, 1:n), repeat(X, 1:n), control(1:n-1, n=>Z), repeat(X, 1:n), repeat(H, 1:n))
+
+	checker_1 = chain(n_arr + 1, 
+		repeat(X, 1:2:n_arr), 
+		control(1:n_arr, (n_arr+1)=>Z), 
+		repeat(X, 1:2:n_arr))
+	
+	checker_2 = chain(n_arr + 1, 
+		repeat(X, 2:2:n_arr), 
+		control(1:n_arr, (n_arr + 1) => Z), 
+		repeat(X, 2:2:n_arr))
+
+	circuit = chain(n, repeat(H, 1:n_address), put(n=>H),
+	QRAM, 
+	put(n_address+1 : n => checker_1), 
+	put(n_address+1 : n => checker_2),
+	QRAM',
+	put(collect(Iterators.flatten((1:n_address, n))) => U𝜑(n_address+1)))
+	
+	return circuit
+end
+
+# ╔═╡ 9b16d7a5-9bf1-4dce-a262-71c2ddc8606a
+plot(answer([1,5,7,10]))
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 Yao = "5872b779-8223-5990-8dd0-5abbb0748c8c"
 YaoPlots = "32cfe2d9-419e-45f2-8191-2267705d8dbc"
 
 [compat]
+StatsBase = "~0.33.10"
 Yao = "~0.6.4"
 YaoPlots = "~0.6.1"
 """
@@ -525,15 +652,30 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 
 # ╔═╡ Cell order:
 # ╠═9ea9660f-e799-4abf-9a95-56e344a5208f
+# ╟─d736b0e1-a5ce-4ea6-aa13-9b27509ac230
+# ╟─f8447326-85eb-4153-8768-0e142d69a775
 # ╠═b6fa6388-6b69-493c-9314-b29eced3e3f4
 # ╠═f2a2c511-1645-4ae0-acfc-8d2f5f184cde
+# ╟─43f90b31-c22d-40fa-9ac5-bf03a66aac5b
+# ╠═6b9b5928-754f-4b26-9336-98fb8637ae8b
+# ╟─d10c8bc6-22d3-4ee7-ab86-cdeeb1f5eb71
+# ╠═fdefac19-0264-4f45-80c4-53349562e289
+# ╠═8e04b2e2-9253-4cf9-a02e-61e5d1a0070a
 # ╠═8b50c80d-1380-4a25-9774-e417eb790d9a
+# ╟─b39468c1-cbe7-40fc-9390-127f706b51b3
+# ╠═fe3cf78a-cdb8-4ad3-acc8-607a536ef3c6
+# ╟─244a25a5-52b3-445f-9575-092fd5911404
 # ╠═e5a2456b-3e26-405c-80ea-d1ad85d12e5a
+# ╟─8809d0f0-91a8-4504-a907-88ba36f3dee3
 # ╠═3f61117a-135e-433c-879a-00ba96b923e4
 # ╠═3d2c152e-47d8-4a35-a6fc-44863a86cd32
 # ╠═7ec3e06a-5d92-48b7-8501-eb71aa1c20ef
-# ╠═e4bc5c27-971f-4150-a192-f725b673e543
-# ╠═a185e144-1b95-4cd4-8437-33461c0352ef
-# ╠═6422d347-1ee1-4649-a746-272edb03efe9
+# ╟─06bdb659-db1c-4045-b720-a6abffafa008
+# ╟─773f4462-7b99-4c79-9650-53743b890515
+# ╠═28e83e27-8c2c-444a-a5a2-a52d4f736e6e
+# ╠═3c222af6-78e9-4a55-b030-3dad024e8bde
+# ╠═21d184f1-1690-4953-be6e-3815dba72a69
+# ╠═aab91164-be06-445b-82bf-fff197ee51da
+# ╠═9b16d7a5-9bf1-4dce-a262-71c2ddc8606a
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
